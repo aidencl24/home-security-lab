@@ -1,0 +1,23 @@
+<!--
+  Excerpt from /var/ossec/etc/ossec.conf on lab-wazuh (Wazuh manager 4.14.9).
+  Only the log inputs added for this lab are shown; the rest of the file is the
+  package default. These blocks sit just before the final </ossec_config>.
+
+  Do not replace the default secure <remote> block (TCP 1514): agents connect
+  through it. Syslog from pfSense arrives through rsyslog (10-pfsense.conf) instead.
+
+  Validate before restarting:  sudo /var/ossec/bin/wazuh-logcollector -t
+  Then:                        sudo systemctl restart wazuh-manager
+-->
+
+  <!-- pfSense firewall and system events, hostname added by the rsyslog relay -->
+  <localfile>
+    <log_format>syslog</log_format>
+    <location>/var/log/pfsense.log</location>
+  </localfile>
+
+  <!-- Suricata EVE alerts as bare JSON, so Wazuh's built-in Suricata rules (86600 group) apply -->
+  <localfile>
+    <log_format>json</log_format>
+    <location>/var/log/suricata-eve.json</location>
+  </localfile>

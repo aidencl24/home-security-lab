@@ -8,12 +8,12 @@ Everything runs in VMware Workstation Pro on a 16 GB laptop. All testing stays i
 
 ---
 
-## Current status (October 26, 2026)
+## Current status (October 27, 2026)
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 · Network foundation | pfSense, four zones, default-deny firewall rules | ✅ Complete (14 of 14 verification tests passed) |
-| 2 · Targets + SIEM | web01, Wazuh manager and agent, pfSense and Suricata logs into Wazuh | 🟡 Core pipeline verified; DVWA and Windows target remaining |
+| 2 · Targets + SIEM | web01, Wazuh manager and agent, pfSense and Suricata logs into Wazuh | 🟡 Core pipeline verified; DVWA installed; Apache logging and Windows target remaining |
 | 3 · Attack and detect | Techniques 1–5 | ⬜ Planned |
 | 4 · Write-ups + polish | Techniques 6–10, final documentation | ⬜ Planned |
 
@@ -47,7 +47,7 @@ Each zone is a separate VMware LAN Segment on its own pfSense interface, so ever
 | VM | OS | Zone | Address | RAM | Role |
 |---|---|---|---|---|---|
 | lab-pfSense | pfSense CE 2.9.0 | All (router) | .1 in each zone | 2 GB | Firewall, router, Suricata IDS |
-| lab-web01 | Ubuntu Server 26.04.1 LTS | Servers | 10.10.20.10 | 1 GB | Target server (SSH; DVWA planned) |
+| lab-web01 | Ubuntu Server 26.04.1 LTS | Servers | 10.10.20.10 | 1 GB | Target server (SSH, DVWA) |
 | lab-wazuh | Ubuntu Server 24.04.5 LTS + Wazuh 4.14.9 | Security | 10.10.30.10 | 1.5 GB | SIEM and log relay |
 | lab-kali | Kali Linux rolling (command line) | Attacker | 10.10.99.100 | 2 GB | Attacker VM |
 | Windows target | Windows 11 evaluation | Users | DHCP | 3 GB | ⬜ Planned (Sysmon + Wazuh agent) |
@@ -77,6 +77,8 @@ flowchart LR
 - **pfSense firewall events** are sent over syslog to an rsyslog relay on the Wazuh VM. The relay adds the hostname that pfSense's BSD syslog format omits, so Wazuh's built-in pfSense decoders can parse them.
 - **Suricata** runs in IDS (alert-only) mode on the Servers interface with Emerging Threats Open rules (attack_response, exploit, scan, web_server). The relay splits its EVE JSON events into a separate file, which Wazuh reads as JSON so its built-in Suricata rules apply.
 - **web01** reports to Wazuh through the Wazuh agent.
+
+The relay and Wazuh input configuration, and the Suricata settings, are in [`configs/`](configs/).
 
 ---
 
@@ -113,10 +115,12 @@ Each completed detection gets its own folder under `detections/` with the test p
 
 ## Troubleshooting highlights
 
-Real problems from the build and how they were found:
+Real problems from the build and how they were found. The full list, with diagnosis steps for each, is in the [troubleshooting log](docs/troubleshooting-log.md).
 
 - **Suricata showed no alerts.** The test pings were aimed at pfSense's own interface addresses, so they never crossed the monitored interface, and plain ICMP matched no enabled rule anyway. A test that actually crossed the Servers interface with known trigger content confirmed the sensor worked. *Lesson: a sensor only sees its own interface, and a test must contain what the rule looks for.*
 - **Suricata alerts reached Wazuh but raised no alert.** `wazuh-logtest` showed no decoder matched: the JSON arrived wrapped in a syslog header, so it fell through to a generic low-level rule. Splitting the JSON into its own file read as `json` fixed it.
+- **Suricata events arrived cut off.** Some lines stopped at exactly 986 characters, the BSD syslog size limit, so Wazuh couldn't parse them. Turning off payload and traffic logging keeps every alert under the limit.
+- **The server zone couldn't ping out or sync its clock.** The firewall log showed default-deny blocks for ICMP and NTP from web01: the "updates" rule had been created with pfSense's default protocol, TCP. Setting it to Any fixed both.
 - **pfSense logs reached Wazuh but raised no alerts.** pfSense's BSD syslog omits the hostname, so Wazuh misread the message. Found with `tcpdump` and `wazuh-logtest`; fixed with the rsyslog relay.
 - **Wazuh agent stuck at "Unknown".** The manager's disk was full because the Ubuntu installer used only half the LVM volume. Fixed with `lvextend`.
 - **New zones could not resolve names.** Default deny blocked DNS until each zone got its own DNS rule.
@@ -128,6 +132,8 @@ Real problems from the build and how they were found:
 ```
 home-security-lab/
 ├── README.md        overview, architecture, results, lessons learned
+├── configs/         relay, Wazuh input and Suricata configuration
+├── docs/            troubleshooting log and supporting documentation
 ├── diagrams/        network diagrams (PNG + editable source)
 ├── network/         sanitized firewall rules and network documentation
 ├── detections/      one folder per technique: procedure, rule, evidence, write-up
